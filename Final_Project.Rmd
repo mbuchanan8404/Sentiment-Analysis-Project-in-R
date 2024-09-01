@@ -1,0 +1,614 @@
+---
+title: "Final Project: Disaster Tweet Classification"
+output: html_notebook
+---
+
+
+
+
+Data import, exploration, and cleaning. Because this data is part of
+an open kaggle competition, the test set has no target variables so we will make
+our own test set.
+```{r}
+raw_data <- read.csv("train.csv", na.strings = "")
+raw_submission <- read.csv("test.csv", na.strings = "")
+
+str(raw_data)
+summary(raw_data)
+```
+
+
+Check for missing variables. The variable keyword has 61 NA's, while location
+has 2533. 
+```{r}
+print("Number of missing values")
+colSums(is.na(raw_data))
+
+print("Percentage of missing values")
+round(colMeans(is.na(raw_data[ ,colSums(is.na(raw_data)) > 0])), 3) * 100
+```
+
+
+Check if outcome variable target is balanced. The target variable is fairly
+balanced at around 43/57 split for true/false.
+```{r}
+sprintf("Number of 0's in target variable: %i", nrow(raw_data[raw_data$target == 0, ]))
+sprintf("Number of 1's in target variable: %i", nrow(raw_data[raw_data$target == 1, ]))
+
+sprintf("Percentage 0: %f", nrow(raw_data[raw_data$target == 0, ]) / nrow(raw_data) * 100)
+sprintf("Percentage 1: %f", nrow(raw_data[raw_data$target == 1, ]) / nrow(raw_data) * 100)
+```
+```{r}
+barplot(table(raw_data$target), xlab = "Target Variable", ylab = "Frequency", main = "Target Variable Frequencies")
+```
+
+
+
+
+EXPLORE VARIABLE "keyword"
+
+First, some rows in the keyword column have two keywords concatenated together
+separated by the characters "%20". Examples include "airplane accident" and
+"body bag". Since the separated words have a meaning that is different from
+either word on its own, we will replace these characters with a space.
+```{r}
+cleaned_data <- raw_data
+cleaned_data$keyword  <- sapply(raw_data$keyword, function(x) {gsub("%20", " ", x)})
+```
+
+
+
+Lets look at a word cloud for keyword variable for false and true disasters.
+The two word clouds are a bit different, indicating different frequencies for
+true and false disaster tweets.
+```{r}
+library(wordcloud)
+library(tm)
+
+keywords <- Corpus(VectorSource(cleaned_data[cleaned_data$target == 0, ]$keyword))
+wordcloud(keywords, max.words = 20, random.order = FALSE)
+
+keywords <- Corpus(VectorSource(cleaned_data[cleaned_data$target == 1, ]$keyword))
+wordcloud(keywords, max.words = 20, random.order = FALSE)
+```
+
+
+
+Determine the number of unique words in the "keyword" variable. There are only 222
+unique keyword values.
+```{r}
+sprintf("Number of unique keywords: %i", length(unique(cleaned_data$keyword)))
+```
+
+
+Get the frequency plot of keyword. The keywords have a fairly uniform frequency.
+```{r}
+barplot(table(cleaned_data$keyword), xlab = "Keywords", ylab = "Frequency", main = "Keyword Frequencies")
+```
+
+
+Examine distribution of target variable in keywords. The keywords are not
+evenly distributed between the 'real disaster' and 'not real disaster' categories.
+The keywords encode information about whether the tweet is about a real disaster
+or not so we will keep the variable "keyword".
+```{r}
+library(ggplot2)
+ 
+# Create a stacked bar plot
+ggplot(as.data.frame(table(cleaned_data$keyword, raw_data$target)), aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Key Word Target Value Frequencies",
+    x = "Keyword",
+    y = "Count",
+    fill = "Disaster"
+  ) +
+  scale_fill_manual(values = c("0" = "blue", "1" = "red"), labels = c("False", "True")) + theme_minimal()
+```
+
+
+Here is a frequency plot of the first 20 keywords and their target values.
+```{r}
+# Create a stacked bar plot for the first 20 keywords
+freq_plot <- ggplot(as.data.frame(table(cleaned_data$keyword, raw_data$target)[1:20, ]), 
+                    aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Key Word Target Value Frequencies",
+    x = "Keyword",
+    y = "Count",
+    fill = "Disaster"
+  ) +
+  scale_fill_manual(values = c("0" = "blue", "1" = "red"), labels = c("False", "True")) + theme_minimal()
+freq_plot + coord_flip()
+```
+
+
+Before we can impute the missing keywords, we need to check the distribution of
+the NA values on the target variable. Missing keywords are strongly associated
+with real disaster tweets, so we will keep them.
+```{r}
+barplot(table(raw_data[is.na(cleaned_data$keyword), ]$target),xlab = "Target Value", 
+        ylab = "Frequency", main = "Target Variable for keyword NA's")
+```
+
+
+
+
+EXPLORE VARIABLE "location"
+
+
+Determine number of unique locations in the location variable. There are 3,342
+unique values of location.
+```{r}
+sprintf("Number of unique locations: %i", length(unique(raw_data$location)))
+```
+
+
+Get the frequency plot of "location". The keywords are sparse.
+```{r}
+barplot(table(raw_data$location), xlab = "Locations", ylab = "Frequency", main = "Location Frequencies")
+```
+
+
+Examine distribution of target variable in locations. The locations are not
+evenly distributed between the 'real disaster' and 'not real disaster' categories.
+While extremely sparse, a few location values seem to encode information about the
+target variable.
+```{r}
+library(ggplot2)
+ 
+# Create a stacked bar plot
+ggplot(as.data.frame(table(raw_data$location, raw_data$target)), aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Location and Target Values",
+    x = "Location",
+    y = "Count",
+    fill = "Disaster"
+  ) +
+  scale_fill_manual(values = c("0" = "blue", "1" = "red"), labels = c("False", "True")) + theme_minimal()
+```
+
+
+Here is a frequency plot of the first 20 locations and their target values.
+```{r}
+# Create a stacked bar plot for the first 20 keywords
+freq_plot <- ggplot(as.data.frame(table(raw_data$location, raw_data$target)[1:20, ]), aes(x = Var1, y = Freq, fill = Var2)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Location and Target Values",
+    x = "Location",
+    y = "Count",
+    fill = "Disaster"
+  ) +
+  scale_fill_manual(values = c("0" = "blue", "1" = "red"), labels = c("False", "True")) + theme_minimal()
+freq_plot + coord_flip()
+```
+
+
+Before we can impute the missing locations, we need to check the distribution of
+the NA values on the target variable. It seems false disaster tweets are more
+likely to lack a location.
+```{r}
+barplot(table(raw_data[is.na(raw_data$location), ]$target), xlab = "Target Value", 
+        ylab = "Frequency", main = "Target Variable for location NA's")
+```
+
+
+
+
+EXPLORE VARIABLE "text"
+
+
+Before proceeding me must clean the raw tweets.
+```{r}
+library(tm)
+tweet_corpus <- VCorpus(VectorSource(raw_data$text))
+tweet_corpus <- tm_map(tweet_corpus, content_transformer(tolower))
+tweet_corpus <- tm_map(tweet_corpus, removeWords, stopwords("english"))
+
+toSpace <- content_transformer(function(x, pattern) gsub(pattern, " ", x))
+
+tweet_corpus <- tm_map(tweet_corpus, toSpace, "(s?)(f|ht)tp(s?)://\\S+\\b")
+tweet_corpus <- tm_map(tweet_corpus, toSpace, "#[[:alnum:]_]+")
+tweet_corpus <- tm_map(tweet_corpus, toSpace, "/")
+tweet_corpus <- tm_map(tweet_corpus, toSpace, "@")
+tweet_corpus <- tm_map(tweet_corpus, toSpace, "\\|")
+tweet_corpus <- tm_map(tweet_corpus, removeNumbers)
+library(SnowballC)
+tweet_corpus <- tm_map(tweet_corpus, stemDocument)
+tweet_corpus <- tm_map(tweet_corpus, removePunctuation)
+tweet_corpus <- tm_map(tweet_corpus, stripWhitespace)
+
+text <- data.frame(text=unlist(sapply(tweet_corpus, `[`, "content")), stringsAsFactors=F)
+cleaned_data$text <- text$text
+```
+
+
+Determine number of unique words in the cleaned text variable. There are 6,827
+unique words of the cleaned text.
+```{r}
+sprintf("Number of unique words: %i", length(unique(cleaned_data$text)))
+```
+
+
+Below is a word cloud for the text variable for true and false disasters.
+```{r}
+text <- Corpus(VectorSource(cleaned_data[cleaned_data$target == 0, ]$text))
+wordcloud(text, max.words = 40, random.order = FALSE)
+
+text <- Corpus(VectorSource(cleaned_data[cleaned_data$target == 1, ]$text))
+wordcloud(text, max.words = 40, random.order = FALSE)
+```
+
+
+Find the average word count for both values of the target variable.
+Tweets about real disasters have more words on average.
+```{r}
+f <- sapply(cleaned_data[cleaned_data$target == 0, ]$text, function(x) {lengths(strsplit(x, " "))})
+sprintf("Average number of words in false disaster tweets: %f", mean(f))
+
+t <- sapply(cleaned_data[cleaned_data$target == 1, ]$text, function(x) {lengths(strsplit(x, " "))})
+sprintf("Average number of words in true disaster tweets: %f", mean(t))
+```
+
+
+Now lets look at the distribution of word counts for true and false disaster tweets.
+The distributions are different.
+```{r}
+blue <- rgb(0, 0, 1, alpha=0.5)
+red <- rgb(1, 0, 0, alpha=0.5)
+barplot(table(f), col = blue, main="Word Counts for Tweets", xlab = "Word Count", ylab = "Frequency")
+barplot(table(t), col = red, xaxt='n', add = TRUE)
+legend("topright", legend = c("False", "True"), fill = c(blue, red))
+```
+
+
+And lets also look at the distribution of word lengths for true and false disaster tweets.
+```{r}
+barplot(table(round(f, 0.5)), col = blue, main="Average Word Lengths for Tweets", 
+        xlab = "Character Count Per Word", ylab = "Frequency")
+barplot(table(round(t, 0.5)), col = red, xaxt='n', add = TRUE)
+legend("topright", legend = c("False", "True"), fill = c(blue, red))
+```
+
+
+
+
+DATA IMPUTATION
+
+
+First lets graph the missing data.
+```{r}
+library(VIM)
+aggr_plot <- aggr(cleaned_data, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(cleaned_data), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+```
+
+With no good method to impute these sparse string values in a data set with only 
+3 predictors, we will use the string "unknown" and "none" for imputation.
+```{r}
+cleaned_data[is.na(cleaned_data$location), ]$location <- 'unknown'
+cleaned_data[is.na(cleaned_data$keyword), ]$keyword <- 'none'
+```
+
+
+Remove the id variable and split the cleaned data into training and test.
+```{r}
+set.seed(1)
+library(caret, quietly = TRUE)
+
+cleaned_data <- subset(cleaned_data, select = -id)
+cleaned_data$target <- factor(cleaned_data$target)
+
+inTrain <- createDataPartition(cleaned_data$keyword, p=0.9, list=FALSE)
+train <- cleaned_data[inTrain, ]
+test <- cleaned_data[-inTrain, ]
+```
+
+
+
+
+FEATURE ENCODING
+
+
+We will use feature hashing to handle the sparsity of the keyword variable.
+```{r}
+set.seed(1)
+
+library(textrecipes)
+
+recipe <- recipe(~keyword, data = train) %>% step_dummy_hash(keyword, num_terms = 25)
+object <- recipe %>% prep()
+train$keyword <- data.frame(bake(object, new_data = train))
+test$keyword <- data.frame(bake(object, new_data = test))
+```
+
+
+We'll also use feature hashing for the location variable.
+```{r}
+set.seed(1)
+
+recipe = recipe(~location, data = train) %>% step_dummy_hash(location, num_terms = 5)
+object= recipe %>% prep()
+train$location = data.frame(bake(object, new_data = train))
+test$location = data.frame(bake(object, new_data = test))
+```
+
+
+For the text variable we will use tf-idf encoding for the and z scale normalization.
+```{r}
+library(keras)
+set.seed(1)
+
+text_vectorizer <- layer_text_vectorization(output_mode="tf_idf", max_tokens = 500)
+text_vectorizer %>% adapt(train$text)
+
+train_tfidf <- as.matrix(text_vectorizer(train$text))
+test_tfidf <- as.matrix(text_vectorizer(test$text))
+
+train_tfidf <- scale(train_tfidf)
+col_means_train <- attr(train_tfidf, "scaled:center")
+col_stddevs_train <- attr(train_tfidf, "scaled:scale")
+test_tfidf <- scale(test_tfidf, center = col_means_train, scale = col_stddevs_train)
+
+train_tfidf <- as.data.frame(cbind(train_tfidf, as.matrix(subset(train, select = -text))))
+test_tfidf <- as.data.frame(cbind(test_tfidf, as.matrix(subset(test, select = -c(text, target)))))
+
+train_tfidf <- train_tfidf %>% mutate_if(is.character, as.numeric)
+test_tfidf <- test_tfidf %>% mutate_if(is.character, as.numeric)
+```
+
+
+
+
+Function to create a cross table and print statistics.
+```{r}
+c_table <- function(predictions) {
+  
+  t <- table(test_labels, predictions)
+  print(t)
+
+  error <- (t[1,1] + t[2,2]) / nrow(test)
+  print(sprintf("Accuracy: %f", error))
+
+  precision <- t[2,2] / (t[2,2] + t[1,2])
+  print(sprintf("Precision: %f", precision))
+
+  recall <- t[2,2] / (t[2,2] + t[2,1])
+  print(sprintf("Recall: %f", recall))
+
+  f1_score <- (2 * precision * recall) / (precision + recall)
+  print(sprintf("F1: %f", f1_score))
+}
+
+test_labels <- test$target
+```
+
+
+
+
+TRAINING AND TESTING MODELS
+
+
+KNN model with with 10-fold cross validation.
+```{r}
+set.seed(1)
+library(pROC)
+library(ISLR)
+
+knn_model <- train(factor(target) ~ .,
+                data = train_tfidf,
+                method = "knn",
+                trControl = trainControl(method = "cv", number = 10))
+
+knn_model
+knn_predictions <- predict(knn_model, test_tfidf)
+c_table(knn_predictions)
+auc(test_labels, as.numeric(knn_predictions))
+```
+
+
+
+
+Naive Bays Model with 10 fold cross validation.
+```{r}
+library(e1071)
+
+naive_bayes_model <- train(factor(target) ~ .,
+                           data = train_tfidf,
+                           method = "naive_bayes",
+                           trControl = trainControl(method = "cv", number = 10))
+                            
+
+naive_bayes_model
+naive_bayes_predictions <- predict(naive_bayes_model, test_tfidf)
+c_table(naive_bayes_predictions)
+auc(test_labels, as.numeric(naive_bayes_predictions))
+```
+
+
+
+
+Elastic Net Regression Model with 10-fold cross validation.
+```{r}
+set.seed(1)
+
+elastic_model <- train(factor(target) ~ .,
+                      data = train_tfidf,
+                      method = "glmnet",
+                      family = "binomial",
+                      verbose = FALSE,
+                      trControl = trainControl(method = "cv", number = 10))
+
+elastic_model
+suppressWarnings(elastic_predictions <- predict(elastic_model, test_tfidf))
+c_table(elastic_predictions)
+auc(test_labels, as.numeric(elastic_predictions))
+```
+
+
+
+
+Random Forest Model with 10-fold cross validation.
+```{r}
+set.seed(1)
+
+r_forest_model <- train(factor(target) ~ .,
+                        data = train_tfidf,
+                        method = "rf",
+                        importance = TRUE,
+                        verbose = FALSE,
+                        trControl = trainControl(method = "cv", number = 10))
+
+
+varImp(r_forest_model)
+r_forest_model
+random_forest_predictions <- predict(r_forest_model, test_tfidf)
+c_table(random_forest_predictions)
+auc(test_labels, as.numeric(random_forest_predictions))
+```
+
+
+
+
+Gradient Boosted Machine with 10-fold cross validation and hyper parameter tuning.
+```{r}
+set.seed(1)
+library(gbm)
+
+gbm_model <- train(factor(target) ~ .,
+                    data = train_tfidf,
+                    method = "gbm",
+                    verbose = FALSE,
+                    trControl = trainControl(method = "cv", number = 10))
+
+gbm_model
+gbm_predictions <- predict(gbm_model, test_tfidf)
+c_table(gbm_predictions)
+auc(test_labels, as.numeric(gbm_predictions))
+```
+
+
+
+
+Support Vector Machine with 10 fold cross validation
+```{r}
+set.seed(1)
+library(gbm)
+
+svm_model <- train(factor(target) ~ .,
+                    data = train_tfidf,
+                    method = "svmLinear",
+                    verbose = FALSE,
+                    trControl = trainControl(method = "cv", number = 10))
+
+svm_model
+svm_predictions <- predict(svm_model, test_tfidf)
+c_table(svm_predictions)
+auc(test_labels, as.numeric(svm_predictions))
+```
+
+
+
+
+Feed Forward Neural Network Model
+
+
+First we need to create a validation set.
+```{r}
+set.seed(1)
+
+nn_inTrain <- createDataPartition(train_tfidf$target, p=0.9, list=FALSE)
+train_tfidf <- train_tfidf[nn_inTrain, ]
+val_tfidf <- train_tfidf[-nn_inTrain, ]
+```
+
+
+Use tfruns to train different hyper parameter combinations.
+```{r}
+library(keras)
+set.seed(1)
+
+library(tfruns)
+
+runs <- tuning_run("flags.R",
+                    flags = list(
+                     nodes1 = c(32, 64),
+                     nodes2 = c(32, 64),
+                     nodes3 = c(16, 32),
+                     dropout = c(0.1, 0.3),
+                     learning_rate = c(0.01, 0.001),
+                     batch_size = c(64, 128),
+                     activation1 = c("relu", "sigmoid"),
+                     activation2 = c("relu", "sigmoid"),
+                     activation3 = c("relu", "sigmoid")
+                   ),
+                   sample = 0.015)
+
+```
+
+
+Find the best run.
+```{r}
+runs = runs[order(runs$metric_val_loss), ]
+runs
+view_run(runs$run_dir[1])
+```
+
+
+Now we'll combine our validation and test set and try our best feed forward 
+neural network model on the test data.
+```{r}
+library(pROC)
+train_tfidf <- rbind(train_tfidf, val_tfidf)
+
+ann_model <- keras_model_sequential() %>%
+          layer_dense(units = 64, activation = "sigmoid") %>%
+          layer_dropout(0.1) %>%
+          layer_dense(units = 64, activation = "relu") %>%
+          layer_dropout(0.1) %>%
+          layer_dense(units = 16, activation = "sigmoid") %>%
+          layer_dropout(0.1) %>%
+          layer_dense(units = 1, activation = "sigmoid")
+
+ann_model %>% compile(loss = "binary_crossentropy" , optimizer_adam(learning_rate = .01))
+
+history <- ann_model %>% fit(as.matrix(subset(train_tfidf, select = -target)),
+  train_tfidf$target,
+  epochs = 120,
+  batch_size = 64,
+  verbose = FALSE)
+
+ann_model
+ann_predictions <- round(ann_model %>% predict(as.matrix(test_tfidf)))
+auc(test_labels, as.numeric(ann_predictions))
+c_table(ann_predictions)
+```
+
+
+
+
+Majority Voting Model
+```{r}
+m_predictions <- data.frame(col1 = as.numeric(naive_bayes_predictions) - 1, 
+                        col2 = as.numeric(elastic_predictions) - 1, 
+                        col3 = as.numeric(random_forest_predictions) - 1,
+                        col4 = as.numeric(gbm_predictions) - 1, 
+                        col5 = ann_predictions,
+                        col6 = as.numeric(knn_predictions) - 1,
+                        col7 = as.numeric(svm_predictions) - 1)
+
+predictions$final_vote <- m_predictions$col1 + m_predictions$col2 + m_predictions$col3 +
+  m_predictions$col4 + m_predictions$col5 + m_predictions$col6 + m_predictions$col7
+
+majority_predictions <- sapply(predictions$final_vote, function(x) {
+  ifelse(x >= 4, 1, 0) } )
+
+c_table(majority_predictions)
+auc(test_labels, majority_predictions)
+```
+
+
+
+
